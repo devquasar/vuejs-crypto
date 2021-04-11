@@ -44,13 +44,14 @@
               />
             </div>
             <div class="flex bg-white shadow-md p-1 rounded-md flex-wrap">
-              <!-- <span
-                v-for="(chip, idx) in chips"
+              <span
+                v-for="(chip, idx) in chipsByInputValue"
+                @click="addByChipsClick(chip)"
                 :key="idx"
                 class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
               >
                 {{ chip }}
-              </span> -->
+              </span>
             </div>
             <div v-if="showError" class="text-sm text-red-600">
               Такой тикер уже добавлен
@@ -175,30 +176,36 @@ export default {
       graph: [],
       loading: true,
       coinList: [],
-      chips: [],
       showError: false
     };
   },
   computed: {
     tickersByName() {
       return this.tickers.filter(t => t.name === this.ticker.toUpperCase());
+    },
+    chipsByInputValue() {
+      if (!this.loading) {
+        const coinNames = Object.keys(this.coinList)
+          .filter(str => str.includes(this.ticker.toUpperCase()))
+          .slice(0, 4);
+        return coinNames;
+      }
+      return [];
     }
-    // chips() {
-    //   if (!this.loading) {
-    //     return this.coinList.filter(
-    //       coin => coin.FullName.indexOf(this.ticker) >= 1
-    //     );
-    //   }
-    //   return [];
-    // }
   },
   watch: {
     ticker() {
       this.showError = false;
-      // this.myMethod(); TODO
     }
   },
   async created() {
+    const tickersData = localStorage.getItem("cryptonomicon-list");
+    if (tickersData) {
+      this.tickers = JSON.parse(tickersData);
+      this.tickers.forEach(ticker => {
+        this.subscribeToUpdates(ticker.name);
+      });
+    }
     const coinNames = await fetch(
       "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
     );
@@ -207,15 +214,18 @@ export default {
     this.loading = false;
   },
   methods: {
-    myMethod() {
-      for (let prop in this.coinList) {
-        if (
-          this.coinList[prop].FullName.indexOf(this.ticker) >= 1 &&
-          this.chips.length < 4
-        ) {
-          console.log("123");
+    subscribeToUpdates(tickerName) {
+      setInterval(async () => {
+        const f = await fetch(
+          `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD&api_key=1b3320f85b9b1121f6d2432dda6f72d27d7da0e72f9f618b5745289ea1f51678`
+        );
+        const data = await f.json();
+        this.tickers.find(t => t.name === tickerName).price =
+          data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
+        if (this.sel?.name === tickerName) {
+          this.graph.push(data.USD);
         }
-      }
+      }, 5000);
     },
     add() {
       if (this.tickersByName.length > 0) {
@@ -225,27 +235,23 @@ export default {
           name: this.ticker.toUpperCase(),
           price: "-"
         };
-
         this.tickers.push(currentTicker);
-        setInterval(async () => {
-          const f = await fetch(
-            `https://min-api.cryptocompare.com/data/price?fsym=${currentTicker.name}&tsyms=USD&api_key=1b3320f85b9b1121f6d2432dda6f72d27d7da0e72f9f618b5745289ea1f51678`
-          );
-          const data = await f.json();
-          this.tickers.find(t => t.name === currentTicker.name).price =
-            data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
-          if (this.sel?.name === currentTicker.name) {
-            this.graph.push(data.USD);
-          }
-        }, 5000);
+        localStorage.setItem(
+          "cryptonomicon-list",
+          JSON.stringify(this.tickers)
+        );
+        this.subscribeToUpdates(currentTicker.name);
         this.ticker = "";
       }
+    },
+    addByChipsClick(chipsName) {
+      this.ticker = chipsName;
+      this.add();
     },
     handleDelete(tickerToRemove) {
       this.tickers = this.tickers.filter(ticker => ticker != tickerToRemove);
     },
     select(ticker) {
-      console.log(ticker);
       this.sel = ticker;
       this.graph = [];
     },
