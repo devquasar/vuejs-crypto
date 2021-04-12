@@ -114,7 +114,7 @@
                 {{ t.name }} - USD
               </dt>
               <dd class="mt-1 text-3xl font-semibold text-gray-900">
-                {{ t.price }}
+                {{ formatPrice(t.price) }}
               </dd>
             </div>
             <div class="w-full border-t border-gray-200" />
@@ -200,20 +200,18 @@
 // [X] График сломан если везде одинаковые значения
 // [X] При удалении тикера остается выбор
 
+import { loadCoinList, subscribeToTicker, unsubscribeFromTicker } from "./api";
+
 export default {
   name: "App",
   data() {
     return {
       ticker: "",
       filter: "",
-
       tickers: [],
       selectedTicker: null,
-
       graph: [],
-
       page: 1,
-
       coinList: [],
       loading: true,
       showError: false
@@ -264,48 +262,6 @@ export default {
       };
     }
   },
-  methods: {
-    subscribeToUpdates(tickerName) {
-      setInterval(async () => {
-        const f = await fetch(
-          `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD&api_key=1b3320f85b9b1121f6d2432dda6f72d27d7da0e72f9f618b5745289ea1f51678`
-        );
-        const data = await f.json();
-        this.tickers.find(t => t.name === tickerName).price =
-          data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
-        if (this.selectedTicker?.name === tickerName) {
-          this.graph.push(data.USD);
-        }
-      }, 5000);
-    },
-    add() {
-      if (this.tickersByName.length > 0) {
-        this.showError = true;
-      } else {
-        const currentTicker = {
-          name: this.ticker.toUpperCase(),
-          price: "-"
-        };
-        this.tickers = [...this.tickers, currentTicker];
-        this.filter = "";
-        this.subscribeToUpdates(currentTicker.name);
-        this.ticker = "";
-      }
-    },
-    addByChipsClick(chipsName) {
-      this.ticker = chipsName;
-      this.add();
-    },
-    select(ticker) {
-      this.selectedTicker = ticker;
-    },
-    handleDelete(tickerToRemove) {
-      this.tickers = this.tickers.filter(ticker => ticker != tickerToRemove);
-      if (this.selectedTicker === tickerToRemove) {
-        this.selectedTicker = null;
-      }
-    }
-  },
   watch: {
     tickers() {
       localStorage.setItem("cryptonomicon-list", JSON.stringify(this.tickers));
@@ -353,18 +309,67 @@ export default {
     // }
 
     const tickersData = localStorage.getItem("cryptonomicon-list");
+
     if (tickersData) {
       this.tickers = JSON.parse(tickersData);
       this.tickers.forEach(ticker => {
-        this.subscribeToUpdates(ticker.name);
+        subscribeToTicker(ticker.name, newPrice =>
+          this.updateTicker(ticker.name, newPrice)
+        );
       });
     }
-    const coinNames = await fetch(
-      "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
-    );
-    const data = await coinNames.json();
-    this.coinList = data.Data;
+
+    setInterval(this.updateTickers, 5000);
+
+    const coinNames = await loadCoinList();
+    this.coinList = coinNames.Data;
     this.loading = false;
+  },
+  methods: {
+    updateTicker(tickerName, price) {
+      this.tickers
+        .filter(t => t.name === tickerName)
+        .forEach(t => {
+          t.price = price;
+        });
+    },
+
+    formatPrice(price) {
+      if (price === "-") {
+        return price;
+      }
+      return price > 1 ? price.toFixed(2) : price.toPrecision(2);
+    },
+    add() {
+      if (this.tickersByName.length > 0) {
+        this.showError = true;
+      } else {
+        const currentTicker = {
+          name: this.ticker.toUpperCase(),
+          price: "-"
+        };
+        this.tickers = [...this.tickers, currentTicker];
+        this.ticker = "";
+        this.filter = "";
+        subscribeToTicker(currentTicker.name, newPrice =>
+          this.updateTicker(currentTicker.name, newPrice)
+        );
+      }
+    },
+    addByChipsClick(chipsName) {
+      this.ticker = chipsName;
+      this.add();
+    },
+    select(ticker) {
+      this.selectedTicker = ticker;
+    },
+    handleDelete(tickerToRemove) {
+      this.tickers = this.tickers.filter(ticker => ticker != tickerToRemove);
+      if (this.selectedTicker === tickerToRemove) {
+        this.selectedTicker = null;
+      }
+      unsubscribeFromTicker(tickerToRemove.name);
+    }
   }
 };
 </script>
